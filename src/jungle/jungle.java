@@ -1,78 +1,150 @@
+/*
+"Apes and Ladder" implementation for lab 5.
+Collaborators: Professor Dave Wonnacott, Professor John Dougherty, Vincent Yu
+Date: 04/14/2021
+ */
+
 package jungle;
+
+// Java Imports
 import java.util.Arrays;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+
 /**
- * @author davew
+ * @author davew + Vincent Yu
  *
  * The Ladder class is NOT a kind of thread,
  *  since it doesn't actually do anything except get used by Apes.
  * The ladder just keeps track of how many apes are on each rung.
+ *
+ * The general idea is as follows: whichever ape grabs the ladder first decides the direction to go until the ladder
+ *  is clear. The apes on the opposite site will wait until the ladder is signaled cleared. When apes are grabbing
+ *  the ladder, the later ape checks if the rung in front has another ape on it, and wait if it's not available.
  */
-
 class Ladder {
-    private volatile int rungCapacity[];
 
-    private final Lock lock = new ReentrantLock();
-    private final Condition oppoDirection = lock.newCondition();   // condition to signal if the ladder is clear
-    private final Condition nextRung = lock.newCondition();        // condition to signal if the next rung is clear
+    // Attributes
+    private final int[] rungCapacity;
+    private final boolean debug;
 
-    private volatile boolean eastBound = true;
-    private volatile int numApes;
+    private final Object numCheck = new Object();                   // Lock for functions related to apes number checks
 
-    public Ladder(int _nRungs) {
+    private final Lock lock = new ReentrantLock();                  // Re-entrant lock for multi-conditional signaling
+    private final Condition oppoDirection = lock.newCondition();    // condition to signal if the ladder is clear
+    private final Condition nextRung = lock.newCondition();         // condition to signal if the next rung is clear
+
+    private volatile boolean eastBound = true;                      // Ladder direction indicator
+    private volatile int numApes;                                   // Number of apes on the ladder
+
+    /**
+     * Constructor for object initialization.
+     * @param _nRungs: Integer type. The capacity of the ladder (i.e., the number of rungs).
+     */
+    public Ladder(int _nRungs, boolean debug) {
+        this.debug = debug;
         rungCapacity = new int[_nRungs];
         // capacity 1 available on each rung
         for (int i=0; i<_nRungs; i++)
             rungCapacity[i] = 1;
     }
 
+    /**
+     * Retrieves the ladder capacity (i.e., the number of rungs).
+     * @return an integer representing the ladder capacity.
+     */
     public int nRungs() {
         return rungCapacity.length;
     }
 
-    public synchronized void incApe() {
-        numApes++;
+    // Functions related to add/subtract/retrieve the number of apes on ladder
+
+    /**
+     * Add one ape to ladder.
+     */
+    public void incApe() {
+        synchronized (numCheck){
+            numApes++;
+        }
     }
 
-    public synchronized void decApe() {
-        numApes--;
+    /**
+     * Remove one ape from ladder.
+     */
+    public void decApe() {
+        synchronized (numCheck){
+            numApes--;
+        }
     }
 
-    public synchronized int getNumApe() {
-        return numApes;
+    /**
+     * Retrieve the number of apes on the ladder now.
+     * @return numApes: Integer type. Represents the number of apes on the ladder now.
+     *                      Should be non-negative.
+     */
+    public int getNumApe() {
+        synchronized (numCheck){
+            return numApes;
+        }
     }
 
-    // return True if you succeed in grabbing the rung
-    public boolean grabRung(int which, boolean goingEast) throws InterruptedException {
+    /**
+     * Concurrent grab rung function with multi-conditional wait.
+     * @param name: string type. Name of the ape.
+     * @param which: integer type. Index of the rung to grab.
+     * @param goingEast: boolean type. True if the ape is going east, and false if the ape is going west.
+     * @return true to indicate that the ape has grabbed the rung.
+     * @throws InterruptedException
+     */
+    public boolean grabRung(String name, int which, boolean goingEast) throws InterruptedException {
 
         lock.lock();
 
         try {
+            // If the ladder has another ape coming from the opposite direction
             while (getNumApe() != 0 && goingEast != eastBound) {
+                // Make the ape wait until the ladder is clear
+                if (debug) {
+                    System.out.println("Ape " + name + " is waiting on the opposite side... \n");
+                }
                 oppoDirection.await();
-                System.out.println("Waiting on the opposite side...");
             }
+            // If the rung in front has an ape grabbing it
             while (rungCapacity[which] < 1) {
+                // Make the ape wait until the rung is available again
+                if (debug) {
+                    System.out.println("Ape " + name + " is waiting for the ape in front to leave... \n");
+                }
                 nextRung.await();
-                System.out.println("Waiting for the ape in front to leave...");
+            }
+
+            // If this is the first Ape on ladder, change ladder direction to wherever this ape is going
+            if (getNumApe() == 0) {
+                eastBound = goingEast;
+                if (debug) {
+                    System.out.print("\nApe " + name + " got to the ladder first! ");
+                    System.out.println("The ladder is now " + (goingEast? "east": "west") + " bound only. \n");
+                }
+            }
+
+            // Check if the ape is grabbing the first rung in front of it
+            boolean newApeOnLadder = ((goingEast && which == 0) || (!goingEast && which == nRungs() - 1));
+
+            // Increase the number of apes on the ladder by 1 if this is a new ape
+            if (newApeOnLadder) {
+                incApe();
             }
 
             // Grab rung once it's safe to do so
             rungCapacity[which]--;
 
-            System.out.println("The ladder now looks like: " + Arrays.toString(rungCapacity));
-
-            // If this is the first Ape on ladder, change ladder direction
-            if (getNumApe() == 0) {
-                eastBound = goingEast;
-                System.out.println("The ladder is now " + (goingEast ? "east " : "west ") + "bound only.");
+            // Visualize the move
+            if (debug) {
+                System.out.println("Ape " + name + " got rung " + which);
+                System.out.println("The ladder now looks like: " + Arrays.toString(rungCapacity));
             }
-
-            // Since some ape is grabbing the rung, the ladder is no longer empty
-            incApe();
 
             return true;
 
@@ -81,20 +153,40 @@ class Ladder {
         }
     }
 
-    public void releaseRung(int which) {
+    /**
+     * Concurrent release rung function with multi-conditional notify.
+     * @param which: integer type. Index of the rung to release.
+     */
+    public void releaseRung(String name, int which) {
         lock.lock();
 
         try {
+            // First, release the rung
             rungCapacity[which]++;
 
-            // Decrease ape by 1 if ape reaches the other side
-            if ((which + 1) == nRungs()) {
-                decApe();
+            if (debug) {
+                System.out.println("... and released rung " + which);
+                System.out.println("The ladder now looks like: " + Arrays.toString(rungCapacity) + "\n");
             }
 
+            // Decrease ape by 1 if ape reaches the other side
+            boolean reachesTheOtherSide = ((eastBound && (which + 1) == nRungs()) || (!eastBound && which == 0));
+            if (reachesTheOtherSide) {
+                decApe();
+                if (debug) {
+                    System.out.println("Ape " + name + " finished going " + (eastBound?"east.":"west."));
+                    System.out.println(getNumApe() + " apes left on the ladder. \n");
+                }
+            }
+
+            // Once the ladder is clear, allow apes from the other side to cross
             if (getNumApe() == 0){
+                if (debug) {
+                    System.out.println("Ladder is now clear. \n");
+                }
                 oppoDirection.signalAll();
             } else {
+                // If this is just a regular scenario, notify the next ape waiting to grab the released rung
                 nextRung.signal();
             }
 
@@ -104,8 +196,9 @@ class Ladder {
     }
 }
 
-/*
- * @author davew
+
+/**
+ * @author davew & Vincent Yu
  *
  * The Ape class is a kind of thread,
  *  since all Apes can go about their activities concurrently
@@ -142,41 +235,38 @@ class Ape extends Thread {
         if (debug)
             System.out.println("Ape " + _name + " wants rung " + startRung);
         try {
-            if (!_ladderToCross.grabRung(startRung, _goingEast)) {
+            if (!_ladderToCross.grabRung(_name, startRung, _goingEast)) {
                 System.out.println("  Ape " + _name + " has been eaten by the crocodiles!");
                 return;  // died
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-        if (debug)
-            System.out.println("Ape " + _name + "  got  rung " + startRung);
+
         for (int i = startRung+move; i!=endRung+move; i+=move) {
             Jungle.tryToSleep(rungDelayMin, rungDelayVar);
             if (debug)
                 System.out.println("Ape " + _name + " wants rung " + i);
             try {
-                if (!_ladderToCross.grabRung(i, _goingEast)) {
+                if (!_ladderToCross.grabRung(_name, i, _goingEast)) {
                     System.out.println("Ape " + _name + ": AAaaaaaah!  falling off the ladder :-(");
                     System.out.println("  Ape " + _name + " has been eaten by the crocodiles!");
-                    _ladderToCross.releaseRung(i-move); /// so far, we have no way to wait, so release the old lock as we die :-(
+                    _ladderToCross.releaseRung(_name, i-move); /// so far, we have no way to wait, so release the old lock as we die :-(
                     return;  //  died
                 }
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            if (debug)
-                System.out.println("Ape " + _name + "  got  " + i + " releasing " + (i-move));
-            _ladderToCross.releaseRung(i-move);
+            _ladderToCross.releaseRung(_name,i-move);
         }
         if (debug)
             System.out.println("Ape " + _name + " releasing " + endRung);
-        _ladderToCross.releaseRung(endRung);
+        _ladderToCross.releaseRung(_name, endRung);
 
-        System.out.println("Ape " + _name + " finished going " + (_goingEast?"East.":"West."));
         return;  // survived!
     }
 }
+
 
 /**
  * @author davew
@@ -188,7 +278,17 @@ class Ape extends Thread {
  *  existing object (an ape or ladder).
  */
 class Jungle {
-    public static void main(String[] args) throws InterruptedException {
+
+    private static java.util.Random dice = new java.util.Random(); // random number generator, for delays mostly
+    public static void tryToSleep(double secMin, double secVar) {
+        try {
+            java.lang.Thread.sleep(Math.round(secMin*1000) + Math.round(dice.nextDouble()*(secVar)*1000));
+        } catch (InterruptedException e) {
+            System.out.println("Not Handling interruptions yet ... just going on with the program without as much sleep as needed ... how appropriate!");
+        }
+    }
+
+    public static void main(String[] args) {
         //
         //  A solution for Lab 3 should work (have no deadlock, livelock, or starvation)
         //    regardless of the settings of the configuration variables below,
@@ -205,7 +305,7 @@ class Jungle {
         double sideVar = 0.0; // 5.0 seconds is usually enough
 
         // create a Ladder
-        Ladder l = new Ladder(4);
+        Ladder l = new Ladder(4, true);
 
         // create some Eastbound apes who want that ladder
         int nRemaining = eastBound;
@@ -220,8 +320,7 @@ class Jungle {
         }
 
         // put this in to create a pause that will avoid the problem BUT OF COURSE THIS IS NOT A SOLUTION TO THE LAB!
-        tryToSleep(sideMin, sideVar);
-        //tryToSleep(100000, 1000000);
+        // tryToSleep(sideMin, sideVar);
 
         // and create some Westbound apes who want the SAME ladder
         nRemaining = westBound;
@@ -230,19 +329,9 @@ class Jungle {
             Ape a = new Ape("W-"+apeCounter, l,false);
             a.start();
             apeCounter++;
-            tryToSleep(apeMin, apeVar);
+            // tryToSleep(apeMin, apeVar);
             if (nRemaining > 0)
                 nRemaining--;
         }
     }
-
-    private static java.util.Random dice = new java.util.Random(); // random number generator, for delays mostly
-    public static void tryToSleep(double secMin, double secVar) {
-        try {
-            java.lang.Thread.sleep(Math.round(secMin*1000) + Math.round(dice.nextDouble()*(secVar)*1000));
-        } catch (InterruptedException e) {
-            System.out.println("Not Handling interruptions yet ... just going on with the program without as much sleep as needed ... how appropriate!");
-        }
-    }
 }
-
