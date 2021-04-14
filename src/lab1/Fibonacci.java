@@ -1,13 +1,20 @@
 /*
 Multiple implementations of Fibonacci calculation for lab 1.
 Author: Vincent Yu
-Date: 02/17/2021
+Date: 02/23/2021
 
 NOTE: Discussions are at the bottom.
  */
 
 
 package lab1;   // Delete this if not running under package named lab1
+
+
+// Java native imports
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
 
 
 /** Recursive and sequential fibonacci calculation */
@@ -22,8 +29,12 @@ class FibRecursive {
      */
     public static int fib(int n) {
 
-        // Base case: return 1 if n is 0 or 1
-        if (n <= 1) {
+        // Base case: 0th fibonacci number should be 0.
+        if (n == 0) {
+            return 0;
+        }
+        // Base case 2: 1st and 2nd fibonacci number should be 1
+        else if (n <= 2) {
             return 1;
         }
         else {
@@ -52,8 +63,13 @@ class FibConcurrent extends Thread{
 
     /** Thread run function */
     public void run() {
-        // Base case: 0th or 1st fibonacci number should be 1.
-        if (n <= 1){
+
+        // Base case: 0th fibonacci number should be 0.
+        if (n == 0) {
+            result = 0;
+        }
+        // Base case 2: 1st and 2nd fibonacci number should be 1
+        else if (n <= 2) {
             result = 1;
         }
         else {
@@ -87,6 +103,8 @@ public class Fibonacci {
      */
     public static void comparison(int n){
 
+        System.out.println("Looking for Fib(" + n + ")... \n");
+
         // Time the recursive method first
         long startRec = System.currentTimeMillis();
 
@@ -118,31 +136,73 @@ public class Fibonacci {
 
         System.out.println("Concurrent Method:");
         System.out.println("Result: " + fib.result);
-        System.out.println("Time Elapsed: " + (endConc - startConc) + " ms");
+        System.out.println("Time Elapsed: " + (endConc - startConc) + " ms \n");
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
 
-        // Catch input number
-        int n = Integer.parseInt(args[0]) - 1;  // Get rid of -1 if you count from 0
+        // Catch input numbers
+        BufferedReader reader = new BufferedReader (new InputStreamReader(System.in));
+
+        System.out.println("Enter all the nth fibonacci number you are looking for: ");
+
+        // Split the string into individual numbers
+        String[] inputNums = reader.readLine().split(" ");
+
+        // Convert the list of strings into integer inputs
+        ArrayList<Integer> numbers = new ArrayList<>();
+
+        for(String input: inputNums){
+            numbers.add(Integer.parseInt(input));
+        }
 
         // Run comparison
-        comparison(n);
+        for (int num: numbers){
+            comparison(num);
+        }
+
     }
 }
 
 
 /*
-Findings:
-Recursive Method:
-Result: 17711
-Time Elapsed: 2 ms
+Discussion:
 
-Concurrent Method:
-Result: 17711
-Time Elapsed: 13950 ms
+1. Runtime (ms) comparison result (n = 0 to 19):
+          n	    0	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15	16	17	18	19
+  Method
+Recursive	    1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+Concurrent	    1	1	0	0	1	0	1	1	2	2	4	14	11	16	31	48	81	156	302	500
 
-Reason why the concurrent one is much slower;
-1. Starting 2 new threads at each splitting stage, more and more thread. However, only limited number of cores.
-2. With more new threads, there are more join actions, and sync cost time.
+2. Findings:
+
+    * As n increases, the concurrent method now requires more threads, which results in longer runtime. Meanwhile,
+        recursive method is steadily running at 0 millisecond. Both methods return the same correct result.
+
+    * (On my machine) recursive method can still be used for n larger than 19. However, the concurrent method is unable
+        to create the correct number of threads due to outOfMemoryError. As a result, when the recursive method is able
+        to find the nth fibonacci number in less than 2 ms, the concurrent method is giving out the wrong answer and
+        while running for much longer.
+
+3. Explanation:
+
+    * Even though recursive fibonacci method has an exponential time complexity, it can still handle situations when n
+        is relatively small. The space complexity is linear, so memory is not a big issue.
+
+    * For concurrent method, the number of threads created grows exponentially. At each stage, fib(n) is split into 2
+        new threads, fib(n-1) and fib(n-2). Each of the two threads will then split again, all the way until they reach
+        the base case. This is why one may run into outOfMemoryError since there are more threads than what JVM can
+        handle.
+
+    * Moreover, the grab the results from sub-threads, the function need to join the two threads, wait for their
+        executions to finish, and then grab the result. Each time the join call requires a "significant" amount of time
+        to carry out other actions, such as waiting and synchronization. Therefore, the runtime is much higher.
+
+4. Improvement:
+
+    * Don't use concurrent method to calculate fibonacci number. Use a hashmap (dictionary) method instead.
+
+    * If concurrency is absolutely required, then create to thread to calculate fib(n-1) and fib(n-2), but the
+        individual calculation should either be recursive (which is still not the best), or, as mentioned above,
+        implemented using a hashmap.
 */

@@ -45,7 +45,8 @@ class SimpleThread extends Thread {
             // To test running a function, replace the try/catch block with demoFunction()
             try {
                 // Can be replaced with sleep(1000)
-                sleep((int)(Math.random() * 1000));
+                sleep(1000);
+                // sleep((int)(Math.random() * 1000));
             } catch (InterruptedException e) {
                 e.printStackTrace();    // Added print traceback
             }
@@ -92,7 +93,8 @@ class Runner implements Runnable {
 
             try {
                 // Can be replaced with Thread.sleep(1000) or demoFunction();
-                Thread.sleep((int)(Math.random() * 1000));
+                Thread.sleep(1000);
+                // Thread.sleep((int)(Math.random() * 1000));
             } catch (InterruptedException e) {
                 e.printStackTrace();    // Added print traceback
             }
