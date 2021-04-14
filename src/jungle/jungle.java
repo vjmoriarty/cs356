@@ -1,7 +1,8 @@
 package jungle;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * @author davew
@@ -13,8 +14,11 @@ import java.util.Random;
 
 class Ladder {
     private volatile int rungCapacity[];
-    private final Object sameDirection = new Object();
-    private final Object oppoDirection = new Object();
+
+    private final Lock lock = new ReentrantLock();
+    private final Condition oppoDirection = lock.newCondition();   // condition to signal if the ladder is clear
+    private final Condition nextRung = lock.newCondition();        // condition to signal if the next rung is clear
+
     private volatile boolean eastBound = true;
     private volatile int numApes;
 
@@ -29,56 +33,73 @@ class Ladder {
         return rungCapacity.length;
     }
 
+    public synchronized void incApe() {
+        numApes++;
+    }
+
+    public synchronized void decApe() {
+        numApes--;
+    }
+
+    public synchronized int getNumApe() {
+        return numApes;
+    }
+
     // return True if you succeed in grabbing the rung
     public boolean grabRung(int which, boolean goingEast) throws InterruptedException {
 
-        synchronized (oppoDirection) {
-            if (numApes != 0 && goingEast != eastBound) {
-                oppoDirection.wait();
+        lock.lock();
+
+        try {
+            while (getNumApe() != 0 && goingEast != eastBound) {
+                oppoDirection.await();
                 System.out.println("Waiting on the opposite side...");
             }
-        }
-
-        synchronized (sameDirection) {
-            if (rungCapacity[which] < 1) {
-                sameDirection.wait();
+            while (rungCapacity[which] < 1) {
+                nextRung.await();
+                System.out.println("Waiting for the ape in front to leave...");
             }
 
             // Grab rung once it's safe to do so
             rungCapacity[which]--;
 
-            System.out.println(Arrays.toString(rungCapacity));
+            System.out.println("The ladder now looks like: " + Arrays.toString(rungCapacity));
 
             // If this is the first Ape on ladder, change ladder direction
-            if (numApes == 0) {
+            if (getNumApe() == 0) {
                 eastBound = goingEast;
+                System.out.println("The ladder is now " + (goingEast ? "east " : "west ") + "bound only.");
             }
 
             // Since some ape is grabbing the rung, the ladder is no longer empty
-            numApes++;
+            incApe();
 
             return true;
+
+        } finally {
+            lock.unlock();
         }
     }
 
     public void releaseRung(int which) {
+        lock.lock();
 
-        synchronized (sameDirection) {
+        try {
             rungCapacity[which]++;
 
             // Decrease ape by 1 if ape reaches the other side
-            if (which + 1 == nRungs()) {
-                numApes--;
+            if ((which + 1) == nRungs()) {
+                decApe();
             }
 
-            // Notify grabRung the rung is now available
-            sameDirection.notify();
-        }
-
-        synchronized (oppoDirection) {
-            if (numApes == 0){
-                oppoDirection.notify();
+            if (getNumApe() == 0){
+                oppoDirection.signalAll();
+            } else {
+                nextRung.signal();
             }
+
+        } finally {
+            lock.unlock();
         }
     }
 }
@@ -167,7 +188,7 @@ class Ape extends Thread {
  *  existing object (an ape or ladder).
  */
 class Jungle {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
         //
         //  A solution for Lab 3 should work (have no deadlock, livelock, or starvation)
         //    regardless of the settings of the configuration variables below,
@@ -200,6 +221,7 @@ class Jungle {
 
         // put this in to create a pause that will avoid the problem BUT OF COURSE THIS IS NOT A SOLUTION TO THE LAB!
         tryToSleep(sideMin, sideVar);
+        //tryToSleep(100000, 1000000);
 
         // and create some Westbound apes who want the SAME ladder
         nRemaining = westBound;
